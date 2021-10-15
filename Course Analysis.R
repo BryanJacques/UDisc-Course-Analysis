@@ -31,7 +31,7 @@
     # load round results
     round_results <- read_excel(
       results_file
-      ,col_names = "value") %>% 
+      ,col_names = "value") %>%
       filter(!is.na(`value`)) 
     
     # add fields, including has_space to detect if player name
@@ -84,7 +84,12 @@
   }
 
 
-# add fields to all rounds
+# add fields to all rounds, make other modifications
+  
+  # convert score to number, only keep valid scores
+  all_rounds <- all_rounds %>% 
+    mutate(score_val = as.integer(score)) %>% 
+    filter(score_val > 0, !is.na(score_val))
 
   # add round
   all_rounds <- all_rounds %>% 
@@ -137,24 +142,43 @@
       )
     )
 
+  # find skipped rounds by players, eliminate from scores
+  skipped_rounds <- all_rounds %>% 
+    group_by(player, tournament_short, round) %>% 
+    summarize(holes_played = n()) %>% 
+    filter(holes_played == 1)
+  
+  all_rounds <- all_rounds %>% 
+    anti_join(skipped_rounds, by = c("player" , "tournament_short", "round"))
+  
+  # eliminate "Top X Players" and similar values from Player Scores
+  all_rounds <- all_rounds %>% 
+    filter(
+      !str_detect(str_to_upper(player), "TOP \\d")
+      & !str_detect(str_to_upper(player), "VIEW MAP")
+      )
+  
   
 # output file
   
-  write_csv(all_rounds, file = here("data/all_rounds.csv"))
+  write_csv(all_rounds, file = here("data/Hole_Scores.csv"))
 
 
 # diagnose
-  
-  view(all_rounds)
-  
-  all_rounds %>% 
-    group_by(file) %>% 
-    summarize(records = n()) %>% 
-    arrange(desc(records)) %>% 
-    view(title = "by file")
-  
-  all_rounds %>% 
-    group_by(player) %>% 
-    summarize(records = n()) %>% 
-    arrange(records) %>% 
-    view(title = "by player")
+
+  # view(all_rounds)
+  # 
+  # all_rounds %>% 
+  #   group_by(file) %>% 
+  #   summarize(
+  #     records = n()
+  #     ,max_score = max(score_val,na.rm = T)
+  #     ) %>% 
+  #   arrange(desc(records)) %>% 
+  #   view(title = "by file")
+  # 
+  # all_rounds %>% 
+  #   group_by(player) %>% 
+  #   summarize(records = n()) %>% 
+  #   arrange(records) %>% 
+  #   view(title = "by player")
