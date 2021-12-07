@@ -1,125 +1,51 @@
-library(tidyverse)
-library(here)
-library(readxl)
+install.packages("ggridges")
+library(ggridges)
 
-rm(list = ls())
-
-source(here("udisc_functions.R"))
-
-all_rounds <- tibble(
-  hole = integer()
-  ,score = character()
-  ,player = character()
-  ,file = character()
-)
-
-results_files <- list.files(path = here("data/Results/"))
-
-for (file_ in results_files) {
-  all_rounds <- all_rounds %>% 
-    bind_rows(udisc_scores(file_))
-}
-
-
-# add fields to all rounds, make other modifications
-# ------------------------------------------------------------------------------
-
-# convert score to number, only keep valid scores
-all_rounds <- all_rounds %>% 
-  mutate(score_val = as.integer(score)) %>% 
-  filter(score_val > 0, !is.na(score_val)) %>% 
-  select(-score)
-
-# add round
-all_rounds <- all_rounds %>% 
-  mutate(
-    round = case_when(
-      str_detect(file,"1") ~ 1
-      ,str_detect(file,"2") ~ 2
-      ,str_detect(file,"3") ~ 3
-      ,str_detect(file,"4") ~ 4
-    )
-  )
-
-# add full tournament name
-all_rounds <- all_rounds %>% 
-  mutate(
-    tournament_full = case_when(
-      str_detect(file,"LEDGESTONE") ~ "Discraft Ledgestone Insurance Open"
-      ,str_detect(file,"MVP") ~ "MVP Open at Maple Hill"
-      ,str_detect(file,"TEXAS") ~ "Texas State Disc Golf Championship"
-      ,str_detect(file,"LVCR") ~ "Las Vegas Challenge"
-      ,str_detect(file,"DESMOINES") ~ "Des Moines Challenge"
-      ,str_detect(file,"WACO") ~ "Waco Annual Charity Open"
-      ,str_detect(file,"GMC") ~ "Green Mountain Championship"
-      ,str_detect(file,"DGLO") ~ "Discraft Great Lakes Open"
-      ,str_detect(file,"PRESERVE") ~ "The Preserve Championship"
-      ,str_detect(file,"JONESBORO") ~ "Jonesboro Open"
-      ,str_detect(file,"OTB") ~ "OTB Open"
-      ,str_detect(file,"IDLEWILD") ~ "Idlewild Open"
-      ,str_detect(file,"PORTLAND") ~ "Portland Open"
-    )
-  )
-
-# add short tournament name
-all_rounds <- all_rounds %>% 
-  mutate(
-    tournament_short = case_when(
-      str_detect(file,"LEDGESTONE") ~ "Ledgestone"
-      ,str_detect(file,"MVP") ~ "MVP Open"
-      ,str_detect(file,"TEXAS") ~ "Texas State"
-      ,str_detect(file,"LVCR") ~ "LV Challenge"
-      ,str_detect(file,"DESMOINES") ~ "Des Moines"
-      ,str_detect(file,"WACO") ~ "Waco"
-      ,str_detect(file,"GMC") ~ "GMC"
-      ,str_detect(file,"DGLO") ~ "DGLO"
-      ,str_detect(file,"PRESERVE") ~ "Preserve"
-      ,str_detect(file,"JONESBORO") ~ "Jonesboro"
-      ,str_detect(file,"OTB") ~ "OTB Open"
-      ,str_detect(file,"IDLEWILD") ~ "Idlewild"
-      ,str_detect(file,"PORTLAND") ~ "Portland"
-    )
-  )
-
-# find skipped rounds by players, eliminate from scores
-skipped_rounds <- all_rounds %>% 
-  group_by(player, tournament_short, round) %>% 
-  summarize(holes_played = n()) %>% 
-  filter(holes_played == 1)
-
-all_rounds <- all_rounds %>% 
-  anti_join(skipped_rounds, by = c("player" , "tournament_short", "round"))
-
-# eliminate "Top X Players" and similar values from Player Scores
-all_rounds <- all_rounds %>% 
+hole_scores %>% 
+  group_by(player, tournament_short, course, round) %>% 
+  mutate(player_holes_in_round = n()) %>% 
+  group_by(tournament_short, course, round) %>% 
+  mutate(median_holes_in_round = median(player_holes_in_round)) %>% 
   filter(
-    !str_detect(str_to_upper(player), "TOP \\d")
-    & !str_detect(str_to_upper(player), "VIEW MAP")
-  )
+    player_holes_in_round >= median_holes_in_round
+    ,hole <= median_holes_in_round
+  ) %>% 
+  group_by(player, tournament_short, course, round) %>% 
+  summarize(total_par_score = sum(par_score)) %>% 
+  group_by(tournament_short, course, round) %>% 
+  mutate(median_course_round = median(total_par_score)) %>% 
+  ggplot(
+    aes(x = total_par_score
+        ,y = reorder(course,desc(median_course_round))
+        ,fill = reorder(course,desc(median_course_round))
+    )
+  ) +
+  #geom_density_ridges(show.legend = FALSE)
+  geom_density_ridges_gradient(scale = 3, rel_min_height = 0.01, show.legend = F) +
+  ggtitle("Round Score Distribution by Course") +
+  labs(x = NULL, y = NULL) +
+  theme_light()
 
+hole_scores %>%
+  group_by(course, hole) %>% 
+  summarise(
+    avg_par_score = round(mean(par_score),2)
+    ,sd_par_score = round(sd(par_score),2)
+    ) %>%
+  as_tibble() %>% 
+  arrange(desc(avg_par_score)) %>%
+  slice_head(n = 10) %>%
+  flextable() %>% 
+  theme_zebra()
 
-# output file
-# ------------------------------------------------------------------------------
-write_csv(all_rounds, file = here("data/Hole_Scores.csv"))
-
-
-# diagnose
-# ------------------------------------------------------------------------------
-
-# view(all_rounds)
-# 
-# all_rounds %>% 
-#   group_by(file) %>% 
-#   summarize(
-#     records = n()
-#     ,max_score = max(score_val,na.rm = T)
-#     ) %>% 
-#   arrange(desc(records)) %>% 
-#   view(title = "by file")
-# 
-# all_rounds %>% 
-#   group_by(player) %>% 
-#   summarize(records = n()) %>% 
-#   arrange(records) %>% 
-#   view(title = "by player")
-
+hole_scores %>%
+  group_by(course, hole) %>% 
+  summarise(avg_par_score = mean(par_score)) %>% 
+  group_by(course) %>% 
+  mutate(course_avg_par_score = mean(avg_par_score)) %>% 
+  ggplot(aes(x = hole, y = reorder(course,desc(course_avg_par_score)), fill= avg_par_score)) + 
+  geom_tile() +
+  scale_fill_distiller(palette = "RdBu") +
+  theme_light() +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5)) +
+  scale_x_continuous(breaks=c(1:18), labels=c(1:18),limits=c(1,18))

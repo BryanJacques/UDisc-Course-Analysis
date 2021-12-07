@@ -1,18 +1,329 @@
 ---
-title: "Report"
+title: "UDisc Analysis"
 author: "Bryan Jacques"
 #date: "11/4/2021"
-output: github_document
+output: 
+  html_document:
+    toc: true
+    toc_float: true
 ---
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
-library(tidyverse)
-library(here)
 ```
 
-## What is Disc Golf
+# UDisc Player and Course Analysis
 
-![Paul McBeth Throwing](https://www.google.com/url?sa=i&url=https%3A%2F%2Fallthingsdiscgolf.com%2Fhow-paul-mcbeth-won-the-2015-usdgc%2F&psig=AOvVaw3Ogt7w9Th2qx3B4QXWptJw&ust=1636120164745000&source=images&cd=vfe&ved=0CAsQjRxqFwoTCJC149zs_vMCFQAAAAAdAAAAABAD)
-https://www.google.com/url?sa=i&url=https%3A%2F%2Fallthingsdiscgolf.com%2Fhow-paul-mcbeth-won-the-2015-usdgc%2F&psig=AOvVaw3Ogt7w9Th2qx3B4QXWptJw&ust=1636120164745000&source=images&cd=vfe&ved=0CAsQjRxqFwoTCJC149zs_vMCFQAAAAAdAAAAABAD
+![Paul McBeth Throwing](images\McBeth Throwing.jpg){width=70%}
+<!-- allthingsdiscgolf.com -->
+
+This analysis uses data from Udisc's website, which records scores and other data associated with professional disc golf tournaments played throughout the year. It will assume the reader understands the basics of disc golf, which is basically the same as traditional golf, but instead of hitting balls into a cup the players throw discs into a basket. Individual statistics will be examined, as well as statistics pertaining to specific courses and holes.
+
+This analysis will be limited to a subset of tournaments from the professional schedule. The data for the tournaments was taken from [here](https://udisclive.com/schedule). Results were copied and pasted into excel, saved individually, and a script was made to compile all the scores into one dataset (Compile_Scores.R). Two other datasets were manually created in excel to map the courses to the specific tournaments and rounds they were played, and to track par and length for each hole played (Data/Round_Course_Map.xlsx and Data/Course_Hole_Map.xlsx respectively)
+
+
+## Setup
+
+
+The first thing we need to do is set up our environment to run the analysis
+
+
+```{r environment_setup, include=TRUE, echo=TRUE, message=FALSE, warning=TRUE, results='asis'}
+library(tidyverse)
+library(here)
+library(readxl)
+library(flextable)
+library(ggalt)
+library(ggridges)
+
+hole_scores <- read_csv(here("Data/Hole_Scores.csv"))
+round_course_map <- read_excel(here("Data/Round_Course_Map.xlsx"))
+course_hole_map <- read_excel(here("Data/Course_Hole_Map.xlsx"))
+
+hole_scores <- hole_scores %>% 
+  left_join(round_course_map, by = c("tournament_short","round")) %>% 
+  left_join(course_hole_map, by = c("course","hole")) %>% 
+  mutate(par_score = score_val - par)
+```
+Tournament round results were stored in dataset hole_scores, the round and course mapping was stored in round_course_map, and the length and par information for each hole was stored in course_hole_map. round_course_map and course_hole_map were joined to the hole_scores dataset to get course and length information for every hole played. Let's preview the hole_scores dataset to make sure the data was imported and joined properly:
+
+```{r import_check, include=TRUE, echo=TRUE, message=FALSE, warning=TRUE, results='asis'}
+hole_scores %>% 
+  sample_n(3) %>% 
+  flextable() %>% 
+  theme_zebra()
+```
+
+Everything is looking good! The subset of tournaments included in this analysis are as follows:
+
+```{r tournaments_included, include=TRUE, echo=TRUE, message=FALSE, warning=TRUE, results='asis'}
+hole_scores %>% 
+  select(tournament_short) %>% 
+  distinct() %>% 
+  flextable() %>% 
+  theme_zebra()
+```
+
+
+## Player Analysis
+
+
+### Average Par Score
+
+The first thing I'd like to look at is who scores the best. To do this, let's take a look at the average score in relation to par for some of the best performing players. Let's also limit this to players who have only played in at least 8 different events out of the 13 included.
+
+```{r avg_par_score, include=TRUE, echo=TRUE, message=FALSE, warning=TRUE, results='asis'}
+hole_scores %>% 
+  group_by(player) %>% 
+  summarize(
+    events_played = n_distinct(tournament_short)
+    ,holes_played = n()
+    ,avg_score = mean(score_val)
+    ,avg_par_score = mean(par_score)
+    ,round_avg_par_score = round(avg_par_score,2)
+  ) %>% 
+  arrange(avg_par_score) %>%
+  filter(
+    events_played >= 8
+  ) %>% 
+  top_n(10,wt = desc(avg_par_score)) %>% 
+  ggplot() +
+  geom_bar(mapping = aes(x = reorder(player,desc(avg_par_score)), y = avg_par_score), stat = "identity", fill = "#c365e6", alpha = .8) +
+  geom_label(mapping = aes(x = player, y = round_avg_par_score, label = round_avg_par_score)) +
+  ylim(-.5,0) +
+  coord_flip() +
+  theme_light() +
+  ggtitle("Average Par Score") +
+  labs(x = NULL, y = NULL)
+```
+
+For those that follow professional disc golf at all, it's not really surprising at all to see these names at the top, with Ricky Wysocki performing the best, averaging 0.46 strokes under par across all holes played. Just so we can use it later to limit our analysis for other statistics, let's get the top 50 players by average_par_score and save it to a separate dataset called top_50.
+
+```{r get_top_50, include=TRUE, echo=TRUE, message=FALSE, warning=TRUE, results='asis'}
+top_50 <- hole_scores %>% 
+  group_by(player) %>% 
+  summarize(
+    events_played = n_distinct(tournament_short)
+    ,avg_par_score = mean(par_score)
+  ) %>% 
+  arrange(avg_par_score) %>%
+  filter(
+    events_played >= 8
+  ) %>% 
+  top_n(50,wt = desc(avg_par_score))
+```
+
+
+### Bounceback Rate
+
+A statistic I've heard mentioned by commentary teams is bounceback rate, or the propensity for players to score birdie (a stroke under par for a hole) or better after bogeying a hole (scoring over par). However, to my knowledge this statistic has never been calculated, just speculated about. Let's change that.
+
+The first thing we'll have to do is find the score relative to par that a player gets on the next hole they play for any particular hole. To do this, let's join our hole_scores dataset onto itself, while subtracting 1 from the hole number to get the prior hole played.
+
+```{r get_next_hole_scores, include=TRUE, echo=TRUE, message=FALSE, warning=TRUE, results='asis'}
+hole_scores_w_prior <- hole_scores %>% 
+  mutate(prior_hole = hole - 1) %>% 
+  select(p_player = player
+         ,p_tournament_short = tournament_short
+         ,p_round = round
+         ,bounceback_par_score = par_score
+         ,prior_hole)
+
+hole_scores <- hole_scores %>% 
+  left_join(
+    hole_scores_w_prior
+    ,by = c("player" = "p_player"
+            ,"tournament_short" = "p_tournament_short"
+            ,"round" = "p_round"
+            ,"hole" = "prior_hole")
+  ) %>% 
+  mutate(bounceback_opp = 
+           case_when(
+             (par_score > 0 & !is.na(bounceback_par_score)) ~ 1
+             ,TRUE ~ 0
+           )
+        ) %>%
+  mutate(bounceback_birds = 
+           case_when(
+             (bounceback_opp == 1 & bounceback_par_score < 0) ~ 1
+             ,TRUE ~ 0
+              )
+         )
+```
+
+Let's check our output using a single player's round as an example
+
+```{r get_next_hole_scores_check, include=TRUE, echo=TRUE, message=FALSE, warning=TRUE, results='asis'}
+hole_scores %>%
+  filter(file == "DESMOINES1.xlsx"
+         ,player == "Paul McBeth") %>% 
+  select(hole, player, tournament_short, par_score, bounceback_par_score, bounceback_opp, bounceback_birds) %>% 
+  flextable() %>% 
+  theme_zebra()
+```
+
+
+Looks like our bounceback_par_score variable is correctly reporting the score relative to par that a player earned on the next hole for any particular round, bounceback_opp is counting instances where a bounceback birdie is possible, and bounceback_birds is showing if a birdie or better was achieved. Now let's see how the players' bounceback rate compares to their standard birdie rate. Additionally, this will be limited to the top 20 players by average score relative to par.
+
+
+```{r bounceback_summary, include=TRUE, echo=TRUE, message=FALSE, warning=TRUE, results='asis'}
+bounceback <- hole_scores %>%
+  semi_join(top_50, by = "player") %>% 
+  group_by(player) %>% 
+  summarize(
+    events_played = n_distinct(tournament_short)
+    ,holes_played = n()
+    ,total_score = sum(score_val)
+    ,avg_score = mean(score_val)
+    ,median_score = median(score_val)
+    ,total_par_score = sum(par_score)
+    ,avg_par_score = mean(par_score)
+    ,median_par_score = median(par_score)
+    ,bird_or_better = sum(if_else(par_score < 0,1,0))
+    ,bird_rate = bird_or_better / holes_played
+    ,bounceback_birds = sum(bounceback_birds, na.rm = T)
+    ,bounceback_opp = sum(bounceback_opp, na.rm = T)
+    ,bounceback_rate = bounceback_birds / bounceback_opp
+    ,bounceback_gap = bounceback_rate - bird_rate
+    ,chart_line_color = case_when(
+      bounceback_gap > 0 ~ "positive"
+      ,TRUE ~ "negative"
+    )
+  ) %>% 
+  top_n(20,wt = desc(avg_par_score))
+
+bounceback %>% 
+  select(player,bounceback_birds,bounceback_opp,bounceback_rate,bird_rate,bounceback_gap) %>% 
+  arrange(desc(bounceback_gap)) %>% 
+  flextable() %>% 
+  theme_zebra()
+
+```
+The bounceback_gap number shows the difference between bounceback_rate and bird_rate, with a positive number indicating the player is more likely to birdie after carding a bogey or worse, while the opposite is true for a negative number. As shown above, 10 out of the 20 players score better than than they would be expected to, while 10 score worse. There doesn't seem to be any trend indicating the top players "turn it up a notch" after carding a bogey. Just for fun, let's plot what the players' bounceback_gap looks like.
+
+```{r bounceback_plot, include=TRUE, echo=TRUE, message=FALSE, warning=TRUE, results='asis'}
+bounceback %>% 
+  ggplot() + 
+    geom_dumbbell(
+      aes(y=reorder(player,bird_rate), x=bird_rate, xend=bounceback_rate,color = chart_line_color)
+      ,size_x = 2
+      ,size_xend = 2
+      ,colour_x = "black"
+      ,colour_xend = "black"
+    ) +
+  scale_color_manual(values=c("#f28a8e", "#77ed7c"),name = "Bounceback Gap") +
+  theme_light() +
+  labs(x = NULL, y = NULL)
+```
+
+Green values indicate a bounceback_rate higher than a player's bird_rate and the opposite is true for red. Again, these values are scattered haphazardly, and the worst bounceback_gap score belongs to Ricky Wysocki, arguably the best player in the world. Bounceback birdies clearly aren't a necessary component of being an elite disc golfer.
+
+
+### Distnace Management
+
+One thing almost everyone who follows disc golf likes seeing is the power throwers chucking bombs down the fairway. Players like Garrett Gurthie, Eagle McMahon, and Ricky Wysocki throw really far and it's fun to watch, but I'm interested in which players are the best at managing overall distance. To do this, let's correlate hole distance and total strokes for each player in the top 50. Additionally, we'll limit to the longer holes for each par value.
+
+```{r create_distance_management, include=TRUE, echo=TRUE, message=FALSE, warning=TRUE, results='asis'}
+distance_management <- hole_scores %>% 
+  semi_join(top_50, by = "player") %>%
+  group_by(player) %>% 
+  filter(
+    (par == 3 & distance >= 400)
+    | (par == 4 & distance >= 700)
+    | (par == 5 & distance >= 1000)
+  ) %>% 
+  summarise(
+    dist_cor = cor(x = score_val, y = distance, method = "pearson")
+  ) %>% 
+  arrange(dist_cor) 
+
+distance_management %>%
+  top_n(10,wt = desc(dist_cor)) %>% 
+  flextable() %>% 
+  theme_zebra()
+```
+
+We've got the 10 players with the lowest correlation of score to distance above, and many of the names are not surprising, like McMahon, Barela, Jones, and Aderhold. However, it is pretty surprising to see Chris Dickerson take the top spot, as he isn't really known for being an elite distance thrower. Distance management takes more skills however, like having a good forehand and backhand, throwing accurate rollers, and making smart shot selections. While it's the correlation is helpful, we can turn it into something a little more fun, a bomber score ((1 - dist_cor) * 100).
+
+```{r r create_bomber_score, include=TRUE, echo=TRUE, message=FALSE, warning=TRUE, results='asis'}
+distance_management <- distance_management %>% 
+  mutate(
+    Percentile_Rank= rank(dist_cor)/length(dist_cor)
+    ,Bomber_Score = (1 - Percentile_Rank) * 100 
+    ,round_Bomber_Score = round(Bomber_Score,2)
+  ) 
+
+distance_management %>% 
+  top_n(10,wt = round_Bomber_Score) %>% 
+  ggplot() +
+  geom_bar(mapping = aes(x = reorder(player,round_Bomber_Score), y = round_Bomber_Score), stat = "identity", fill = "#c365e6", alpha = .8) +
+  geom_label(mapping = aes(x = player, y = round_Bomber_Score, label = round_Bomber_Score)) +
+  coord_flip() +
+  theme_light() +
+  ggtitle("Bomber Score") +
+  labs(x = NULL, y = NULL)
+```
+
+The above shows this "Bomber Score" that rates how well the players manage distance. Let's take a look at the bottom 10 players (of the top 50 of course).
+
+```{r bottom_10_bomber_score, include=TRUE, echo=TRUE, message=FALSE, warning=TRUE, results='asis'}
+distance_management %>% 
+  top_n(10,wt = desc(round_Bomber_Score)) %>% 
+  ggplot() +
+  geom_bar(mapping = aes(x = reorder(player,round_Bomber_Score), y = round_Bomber_Score), stat = "identity", fill = "#c365e6", alpha = .8) +
+  geom_label(mapping = aes(x = player, y = round_Bomber_Score, label = round_Bomber_Score)) +
+  coord_flip() +
+  theme_light() +
+  ggtitle("Bomber Score") +
+  labs(x = NULL, y = NULL)
+```
+
+Again, a lot of the players seen make sense. Players like Russell, Queen, Marwede, and Presnell are not known for throwing very far. The biggest surprise on this list is Heimburg, who has elite level distance on his backhand. His placement on this list is likely due to not being able to rely as strongly on his forehand for distance as some of the other players better at managing total distance.
+
+
+## Course Analysis
+
+```{r course_round_distribution, include=TRUE, echo=TRUE, message=FALSE, warning=TRUE, results='asis'}
+hole_scores %>% 
+  group_by(player, tournament_short, course, round) %>% 
+  mutate(player_holes_in_round = n()) %>% 
+  group_by(tournament_short, course, round) %>% 
+  mutate(median_holes_in_round = median(player_holes_in_round)) %>% 
+  filter(
+    player_holes_in_round >= median_holes_in_round
+    ,hole <= median_holes_in_round
+    ) %>% 
+  group_by(player, tournament_short, course, round) %>% 
+  summarize(total_par_score = sum(par_score)) %>% 
+  group_by(tournament_short, course, round) %>% 
+  mutate(median_course_round = median(total_par_score)) %>% 
+  ggplot(
+    aes(x = total_par_score
+        ,y = reorder(course,desc(median_course_round))
+        ,fill = reorder(course,desc(median_course_round))
+        )
+      ) +
+    #geom_density_ridges(show.legend = FALSE)
+    geom_density_ridges_gradient(scale = 3, rel_min_height = 0.01, show.legend = F) +
+  ggtitle("Round Score Distribution by Course") +
+  labs(x = NULL, y = NULL) +
+  theme_light()
+```
+
+
+
+
+```{r}
+hole_scores %>%
+  group_by(course, hole) %>% 
+  summarise(avg_par_score = mean(par_score)) %>% 
+  group_by(course) %>% 
+  mutate(course_avg_par_score = mean(avg_par_score)) %>% 
+  ggplot(aes(x = hole, y = reorder(course,desc(course_avg_par_score)), fill= avg_par_score)) + 
+  geom_tile() +
+  scale_fill_distiller(palette = "RdBu") +
+  theme_light() +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5)) +
+  scale_x_continuous(breaks=c(1:18), labels=c(1:18),limits=c(1,18))
+```
 

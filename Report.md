@@ -1,9 +1,0 @@
-Report
-================
-Bryan Jacques
-
-## What is Disc Golf
-
-![Paul McBeth
-Throwing](https://www.google.com/url?sa=i&url=https%3A%2F%2Fallthingsdiscgolf.com%2Fhow-paul-mcbeth-won-the-2015-usdgc%2F&psig=AOvVaw3Ogt7w9Th2qx3B4QXWptJw&ust=1636120164745000&source=images&cd=vfe&ved=0CAsQjRxqFwoTCJC149zs_vMCFQAAAAAdAAAAABAD)
-<https://www.google.com/url?sa=i&url=https%3A%2F%2Fallthingsdiscgolf.com%2Fhow-paul-mcbeth-won-the-2015-usdgc%2F&psig=AOvVaw3Ogt7w9Th2qx3B4QXWptJw&ust=1636120164745000&source=images&cd=vfe&ved=0CAsQjRxqFwoTCJC149zs_vMCFQAAAAAdAAAAABAD>
