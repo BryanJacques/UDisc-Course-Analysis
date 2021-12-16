@@ -14,7 +14,7 @@ knitr::opts_chunk$set(echo = TRUE)
 
 # UDisc Player and Course Analysis
 
-![Paul McBeth Throwing](images\McBeth Throwing.jpg){width=70%}
+![Paul McBeth Throwing, allthingsdiscgolf.com](images\McBeth Throwing.jpg){width=70%}
 <!-- allthingsdiscgolf.com -->
 
 This analysis uses data from Udisc's website, which records scores and other data associated with professional disc golf tournaments played throughout the year. It will assume the reader understands the basics of disc golf, which is basically the same as traditional golf, but instead of hitting balls into a cup the players throw discs into a basket. Individual statistics will be examined, as well as statistics pertaining to specific courses and holes.
@@ -28,7 +28,7 @@ This analysis will be limited to a subset of tournaments from the professional s
 The first thing we need to do is set up our environment to run the analysis
 
 
-```{r environment_setup, include=TRUE, echo=TRUE, message=FALSE, warning=TRUE, results='asis'}
+```{r environment_setup, include=FALSE, echo=TRUE, message=FALSE, warning=FALSE, results='asis'}
 library(tidyverse)
 library(here)
 library(readxl)
@@ -47,16 +47,32 @@ hole_scores <- hole_scores %>%
 ```
 Tournament round results were stored in dataset hole_scores, the round and course mapping was stored in round_course_map, and the length and par information for each hole was stored in course_hole_map. round_course_map and course_hole_map were joined to the hole_scores dataset to get course and length information for every hole played. Let's preview the hole_scores dataset to make sure the data was imported and joined properly:
 
-```{r import_check, include=TRUE, echo=TRUE, message=FALSE, warning=TRUE, results='asis'}
+```{r import_check, include=TRUE, echo=FALSE, message=FALSE, warning=FALSE, results='asis'}
 hole_scores %>% 
   sample_n(3) %>% 
   flextable() %>% 
+  set_caption("UDisc Data") %>% 
   theme_zebra()
 ```
 
 Everything is looking good! The subset of tournaments included in this analysis are as follows:
 
-```{r tournaments_included, include=TRUE, echo=TRUE, message=FALSE, warning=TRUE, results='asis'}
+1. Des Moines
+1. DGLO
+1. GMC
+1. Idlewild
+1. Jonesboro
+1. Ledgestone
+1. LV Challenge
+1. MVP Open
+1. OTB Open
+1. Portland
+1. Preserve
+1. Texas State
+1. Waco
+
+
+```{r tournaments_included, include=FALSE, echo=FALSE, message=FALSE, warning=FALSE, results='asis'}
 hole_scores %>% 
   select(tournament_short) %>% 
   distinct() %>% 
@@ -72,7 +88,7 @@ hole_scores %>%
 
 The first thing I'd like to look at is who scores the best. To do this, let's take a look at the average score in relation to par for some of the best performing players. Let's also limit this to players who have only played in at least 8 different events out of the 13 included.
 
-```{r avg_par_score, include=TRUE, echo=TRUE, message=FALSE, warning=TRUE, results='asis'}
+```{r avg_par_score, include=TRUE, echo=FALSE, message=FALSE, warning=FALSE, results='asis'}
 hole_scores %>% 
   group_by(player) %>% 
   summarize(
@@ -93,24 +109,29 @@ hole_scores %>%
   ylim(-.5,0) +
   coord_flip() +
   theme_light() +
-  ggtitle("Average Par Score") +
+  ggtitle("Avg Par Score Per Hole") +
   labs(x = NULL, y = NULL)
 ```
 
 For those that follow professional disc golf at all, it's not really surprising at all to see these names at the top, with Ricky Wysocki performing the best, averaging 0.46 strokes under par across all holes played. Just so we can use it later to limit our analysis for other statistics, let's get the top 50 players by average_par_score and save it to a separate dataset called top_50.
 
-```{r get_top_50, include=TRUE, echo=TRUE, message=FALSE, warning=TRUE, results='asis'}
+```{r get_top_50, include=TRUE, echo=FALSE, message=FALSE, warning=FALSE, results='asis'}
 top_50 <- hole_scores %>% 
   group_by(player) %>% 
   summarize(
     events_played = n_distinct(tournament_short)
-    ,avg_par_score = mean(par_score)
+    ,avg_par_score = round(mean(par_score),2)
   ) %>% 
   arrange(avg_par_score) %>%
   filter(
     events_played >= 8
   ) %>% 
   top_n(50,wt = desc(avg_par_score))
+
+top_50 %>% 
+  flextable() %>% 
+  set_caption("Top 50 Players by Avg Par Score") %>% 
+  theme_zebra()
 ```
 
 
@@ -120,7 +141,7 @@ A statistic I've heard mentioned by commentary teams is bounceback rate, or the 
 
 The first thing we'll have to do is find the score relative to par that a player gets on the next hole they play for any particular hole. To do this, let's join our hole_scores dataset onto itself, while subtracting 1 from the hole number to get the prior hole played.
 
-```{r get_next_hole_scores, include=TRUE, echo=TRUE, message=FALSE, warning=TRUE, results='asis'}
+```{r get_next_hole_scores, include=TRUE, echo=FALSE, message=FALSE, warning=FALSE, results='asis'}
 hole_scores_w_prior <- hole_scores %>% 
   mutate(prior_hole = hole - 1) %>% 
   select(p_player = player
@@ -153,12 +174,13 @@ hole_scores <- hole_scores %>%
 
 Let's check our output using a single player's round as an example
 
-```{r get_next_hole_scores_check, include=TRUE, echo=TRUE, message=FALSE, warning=TRUE, results='asis'}
+```{r get_next_hole_scores_check, include=TRUE, echo=FALSE, message=FALSE, warning=FALSE, results='asis'}
 hole_scores %>%
   filter(file == "DESMOINES1.xlsx"
          ,player == "Paul McBeth") %>% 
   select(hole, player, tournament_short, par_score, bounceback_par_score, bounceback_opp, bounceback_birds) %>% 
   flextable() %>% 
+  set_caption("Bounceback Round Example") %>% 
   theme_zebra()
 ```
 
@@ -166,7 +188,7 @@ hole_scores %>%
 Looks like our bounceback_par_score variable is correctly reporting the score relative to par that a player earned on the next hole for any particular round, bounceback_opp is counting instances where a bounceback birdie is possible, and bounceback_birds is showing if a birdie or better was achieved. Now let's see how the players' bounceback rate compares to their standard birdie rate. Additionally, this will be limited to the top 20 players by average score relative to par.
 
 
-```{r bounceback_summary, include=TRUE, echo=TRUE, message=FALSE, warning=TRUE, results='asis'}
+```{r bounceback_summary, include=TRUE, echo=FALSE, message=FALSE, warning=FALSE, results='asis'}
 bounceback <- hole_scores %>%
   semi_join(top_50, by = "player") %>% 
   group_by(player) %>% 
@@ -180,10 +202,10 @@ bounceback <- hole_scores %>%
     ,avg_par_score = mean(par_score)
     ,median_par_score = median(par_score)
     ,bird_or_better = sum(if_else(par_score < 0,1,0))
-    ,bird_rate = bird_or_better / holes_played
+    ,bird_rate = round(bird_or_better / holes_played,2)
     ,bounceback_birds = sum(bounceback_birds, na.rm = T)
     ,bounceback_opp = sum(bounceback_opp, na.rm = T)
-    ,bounceback_rate = bounceback_birds / bounceback_opp
+    ,bounceback_rate = round(bounceback_birds / bounceback_opp,2)
     ,bounceback_gap = bounceback_rate - bird_rate
     ,chart_line_color = case_when(
       bounceback_gap > 0 ~ "positive"
@@ -193,27 +215,40 @@ bounceback <- hole_scores %>%
   top_n(20,wt = desc(avg_par_score))
 
 bounceback %>% 
+  summarize(
+    bounceback_rate = round(sum(bounceback_birds) / sum(bounceback_opp),3)
+    ,bird_rate = round(sum(bird_or_better) / sum(holes_played),3)
+  ) %>% 
+  flextable() %>% 
+  set_caption("Overall Birdie and Bounceback Rate") %>% 
+  theme_zebra()
+
+bounceback %>% 
   select(player,bounceback_birds,bounceback_opp,bounceback_rate,bird_rate,bounceback_gap) %>% 
   arrange(desc(bounceback_gap)) %>% 
   flextable() %>% 
+  set_caption("Top 20 Players, Sorted by Bounceback Gap") %>% 
   theme_zebra()
 
 ```
 The bounceback_gap number shows the difference between bounceback_rate and bird_rate, with a positive number indicating the player is more likely to birdie after carding a bogey or worse, while the opposite is true for a negative number. As shown above, 10 out of the 20 players score better than than they would be expected to, while 10 score worse. There doesn't seem to be any trend indicating the top players "turn it up a notch" after carding a bogey. Just for fun, let's plot what the players' bounceback_gap looks like.
 
-```{r bounceback_plot, include=TRUE, echo=TRUE, message=FALSE, warning=TRUE, results='asis'}
+```{r bounceback_plot, include=TRUE, echo=FALSE, message=FALSE, warning=FALSE, results='asis'}
 bounceback %>% 
-  ggplot() + 
-    geom_dumbbell(
-      aes(y=reorder(player,bird_rate), x=bird_rate, xend=bounceback_rate,color = chart_line_color)
-      ,size_x = 2
-      ,size_xend = 2
-      ,colour_x = "black"
-      ,colour_xend = "black"
-    ) +
+  ggplot(mapping = aes(y=reorder(player,bird_rate))) + 
+  geom_dumbbell(
+    aes(x=bird_rate, xend=bounceback_rate, color = chart_line_color)
+    ,size_x = 0
+    ,size_xend = 0
+    ,colour_x = "black"
+    ,colour_xend = "black"
+    ,size = 3
+  ) +
+  geom_point(aes(x=bird_rate),shape = 17,size = 3) +
+  geom_point(aes(x=bounceback_rate),shape = 15,size = 3) +
   scale_color_manual(values=c("#f28a8e", "#77ed7c"),name = "Bounceback Gap") +
   theme_light() +
-  labs(x = NULL, y = NULL)
+  labs(x = NULL, y = NULL, title = "Bounceback Spread for Top Players")
 ```
 
 Green values indicate a bounceback_rate higher than a player's bird_rate and the opposite is true for red. Again, these values are scattered haphazardly, and the worst bounceback_gap score belongs to Ricky Wysocki, arguably the best player in the world. Bounceback birdies clearly aren't a necessary component of being an elite disc golfer.
@@ -223,34 +258,35 @@ Green values indicate a bounceback_rate higher than a player's bird_rate and the
 
 One thing almost everyone who follows disc golf likes seeing is the power throwers chucking bombs down the fairway. Players like Garrett Gurthie, Eagle McMahon, and Ricky Wysocki throw really far and it's fun to watch, but I'm interested in which players are the best at managing overall distance. To do this, let's correlate hole distance and total strokes for each player in the top 50. Additionally, we'll limit to the longer holes for each par value.
 
-```{r create_distance_management, include=TRUE, echo=TRUE, message=FALSE, warning=TRUE, results='asis'}
+```{r create_distance_management, include=TRUE, echo=FALSE, message=FALSE, warning=FALSE, results='asis'}
 distance_management <- hole_scores %>% 
   semi_join(top_50, by = "player") %>%
   group_by(player) %>% 
-  filter(
-    (par == 3 & distance >= 400)
-    | (par == 4 & distance >= 700)
-    | (par == 5 & distance >= 1000)
-  ) %>% 
+  #filter(
+  #  (par == 3 & distance >= 400)
+  #  | (par == 4 & distance >= 700)
+  #  | (par == 5 & distance >= 1000)
+  #) %>% 
   summarise(
-    dist_cor = cor(x = score_val, y = distance, method = "pearson")
+    dist_cor = round(cor(x = score_val, y = distance, method = "pearson"),3)
   ) %>% 
   arrange(dist_cor) 
 
 distance_management %>%
   top_n(10,wt = desc(dist_cor)) %>% 
   flextable() %>% 
+  set_caption("Lowest Distance to Score Correlation by Player") %>% 
   theme_zebra()
 ```
 
-We've got the 10 players with the lowest correlation of score to distance above, and many of the names are not surprising, like McMahon, Barela, Jones, and Aderhold. However, it is pretty surprising to see Chris Dickerson take the top spot, as he isn't really known for being an elite distance thrower. Distance management takes more skills however, like having a good forehand and backhand, throwing accurate rollers, and making smart shot selections. While it's the correlation is helpful, we can turn it into something a little more fun, a bomber score ((1 - dist_cor) * 100).
+We've got the 10 players with the lowest correlation of score to distance above, and many of the names are not surprising, like McMahon, Barela, Jones, and Aderhold. Distance management takes more skills than just throwing far however, like having a good forehand and backhand, throwing accurate rollers, and making smart shot selections. While it's the correlation is helpful, we can turn it into something a little more fun, a bomber score ((1 - dist_cor) * 100).
 
-```{r r create_bomber_score, include=TRUE, echo=TRUE, message=FALSE, warning=TRUE, results='asis'}
+```{r r create_bomber_score, include=TRUE, echo=FALSE, message=FALSE, warning=FALSE, results='asis'}
 distance_management <- distance_management %>% 
   mutate(
     Percentile_Rank= rank(dist_cor)/length(dist_cor)
     ,Bomber_Score = (1 - Percentile_Rank) * 100 
-    ,round_Bomber_Score = round(Bomber_Score,2)
+    ,round_Bomber_Score = round(Bomber_Score,0)
   ) 
 
 distance_management %>% 
@@ -260,13 +296,13 @@ distance_management %>%
   geom_label(mapping = aes(x = player, y = round_Bomber_Score, label = round_Bomber_Score)) +
   coord_flip() +
   theme_light() +
-  ggtitle("Bomber Score") +
+  ggtitle("Best Bomber Scores (From Top 50 Players)") +
   labs(x = NULL, y = NULL)
 ```
 
 The above shows this "Bomber Score" that rates how well the players manage distance. Let's take a look at the bottom 10 players (of the top 50 of course).
 
-```{r bottom_10_bomber_score, include=TRUE, echo=TRUE, message=FALSE, warning=TRUE, results='asis'}
+```{r bottom_10_bomber_score, include=TRUE, echo=FALSE, message=FALSE, warning=FALSE, results='asis'}
 distance_management %>% 
   top_n(10,wt = desc(round_Bomber_Score)) %>% 
   ggplot() +
@@ -274,7 +310,7 @@ distance_management %>%
   geom_label(mapping = aes(x = player, y = round_Bomber_Score, label = round_Bomber_Score)) +
   coord_flip() +
   theme_light() +
-  ggtitle("Bomber Score") +
+  ggtitle("Worst Bomber Scores (From Top 50 Players)") +
   labs(x = NULL, y = NULL)
 ```
 
@@ -283,7 +319,11 @@ Again, a lot of the players seen make sense. Players like Russell, Queen, Marwed
 
 ## Course Analysis
 
-```{r course_round_distribution, include=TRUE, echo=TRUE, message=FALSE, warning=TRUE, results='asis'}
+### Average Par Score by Course
+
+The first thing I'd like to examine is how each course stacks up against the others relative to par. Let's see the distributions of scores per round relative to par.
+
+```{r course_round_distribution, include=TRUE, echo=FALSE, message=FALSE, warning=FALSE, results='asis'}
 hole_scores %>% 
   group_by(player, tournament_short, course, round) %>% 
   mutate(player_holes_in_round = n()) %>% 
@@ -309,11 +349,42 @@ hole_scores %>%
   labs(x = NULL, y = NULL) +
   theme_light()
 ```
+```{r par_round_table, include=TRUE, echo=FALSE, message=FALSE, warning=FALSE, results='asis'}
+hole_scores %>% 
+  group_by(player, tournament_short, course, round) %>% 
+  mutate(player_holes_in_round = n()) %>% 
+  group_by(tournament_short, course, round) %>% 
+  mutate(median_holes_in_round = median(player_holes_in_round)) %>% 
+  filter(
+    player_holes_in_round >= median_holes_in_round
+    ,hole <= median_holes_in_round
+  ) %>% 
+  group_by(player, tournament_short, course, round) %>% 
+  summarize(total_par_score = sum(par_score)) %>% 
+  group_by(tournament_short, course, round) %>% 
+  mutate(median_course_round = median(total_par_score)) %>%
+  group_by(course) %>% 
+  summarise(
+    avg_par_score = round(mean(total_par_score),2)
+    ,min_par_score = min(total_par_score)
+    ,percentile_25 = round(quantile(total_par_score,probs = .25),1)
+    ,percentile_75 = round(quantile(total_par_score,probs = .75),1)
+    ,max_par_score = max(total_par_score)
+    ) %>% 
+  arrange(avg_par_score) %>% 
+  flextable() %>% 
+  set_caption("Summary Round Stats by Course") %>% 
+  theme_zebra()
 
+```
 
+We can see that the Innova course scored the easiest relative to par at an average round score of -3.6, while Northwood Black course was the toughest on the competitors, with the average round score of 5.9.
 
+### Average Par Score by Hole
 
-```{r}
+I was also interested in the hardest individual holes. A heatmap of average par score for each hole will help us identify some of the tougher ones.
+
+```{r par_score_heatmap, include=TRUE, echo=FALSE, message=FALSE, warning=FALSE, results='asis'}
 hole_scores %>%
   group_by(course, hole) %>% 
   summarise(avg_par_score = mean(par_score)) %>% 
@@ -321,9 +392,89 @@ hole_scores %>%
   mutate(course_avg_par_score = mean(avg_par_score)) %>% 
   ggplot(aes(x = hole, y = reorder(course,desc(course_avg_par_score)), fill= avg_par_score)) + 
   geom_tile() +
-  scale_fill_distiller(palette = "RdBu") +
-  theme_light() +
+  scale_fill_distiller(palette = "RdBu",name = "Par Score") +
+  theme_minimal() +
   theme(axis.text.x = element_text(angle = 90, vjust = 0.5)) +
-  scale_x_continuous(breaks=c(1:18), labels=c(1:18),limits=c(1,18))
+  scale_x_continuous(breaks=c(1:18), labels=c(1:18),limits=c(0,19)) +
+  labs(x = NULL, y = NULL)
 ```
 
+It appears Northwood Black has the toughest 2 holes. Here's the calculated average score relative to par for the top 10 hardest holes.
+
+```{r par_score_table, include=TRUE, echo=FALSE, message=FALSE, warning=FALSE, results='asis'}
+hole_scores %>%
+  group_by(course, hole) %>% 
+  summarise(
+    avg_par_score = round(mean(par_score),2)
+    #,sd_par_score = round(sd(par_score),2)
+    ) %>%
+  as_tibble() %>% 
+  arrange(desc(avg_par_score)) %>%
+  slice_head(n = 10) %>%
+  flextable() %>% 
+  set_caption("Hardest Holes Relative to Par") %>% 
+  theme_zebra()
+```
+
+Northwood Black holes represent half of the top 10 hardest holes by average score, with hole 12 taking the top spot at 1.32 strokes over par. This hole would play over par as a par 6. A hole map for this hole can be seen below.
+
+![Northwood Black Hole 12, Udisc.com](images\NB_12.jpg){width=50%}
+
+### Standard Deviation of Score by Hole
+
+Though it's common to evaluate a hole's difficulty by describing how it plays relative to par, I don't personally believe this is a very good metric. Instead, let's take a look at standard deviation by hole, as the higher the standard deviation, the more the hole serves to separate players throughout a tournament. See below for a heatmap of the holes by standard deviation.
+
+```{r sd_heat_map, include=TRUE, echo=FALSE, message=FALSE, warning=FALSE, results='asis'}
+hole_scores %>%
+  group_by(course, hole) %>% 
+  summarise(sd_par_score = sd(par_score)) %>% 
+  group_by(course) %>% 
+  mutate(course_sd_par_score = mean(sd_par_score)) %>% 
+  ggplot(aes(x = hole, y = reorder(course,desc(course_sd_par_score)), fill= sd_par_score)) + 
+  geom_tile() +
+  scale_fill_distiller(palette = "RdBu",name = "SD") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5)) +
+  scale_x_continuous(breaks=c(1:18), labels=c(1:18),limits=c(0,19)) +
+  labs(x = NULL, y = NULL, title = "SD by Hole")
+```
+
+Evidently, Northwood Black no longer has the hardest hole when using standard deviation to measure difficulty. Here's a look at the top 10 holes by SD.
+
+```{r sd_flextable, include=TRUE, echo=FALSE, message=FALSE, warning=FALSE, results='asis'}
+hole_scores %>%
+  group_by(course, hole) %>% 
+  summarise(
+    sd_par_score = round(sd(par_score),2)
+    #,sd_par_score = round(sd(par_score),2)
+  ) %>%
+  as_tibble() %>% 
+  arrange(desc(sd_par_score)) %>%
+  slice_head(n = 10) %>%
+  flextable() %>%
+  set_caption("Hardest Holes by Standard Deviation") %>% 
+  theme_zebra()
+```
+
+Fox Run Meadows hole 18 takes the top spot when measuring by standard deviation. Here's the score distribution for that hole:
+
+```{r FRM_18_hist, include=TRUE, echo=FALSE, message=FALSE, warning=FALSE, results='asis'}
+hole_scores %>% 
+  filter(course == "Fox Run Meadows", hole == 18) %>% 
+  ggplot(aes(x=score_val)) + 
+    #geom_histogram(aes(y=..density..), colour="black", fill="white") +
+    geom_histogram(binwidth=1,fill = "#c365e6", alpha = .5, color = "black") +
+    scale_x_continuous(breaks=seq(0,12,1), lim=c(0,12)) +
+    #geom_bar(stat = "identity") +
+    labs(x = "Score", y = "Count", title = "Fox Run Meadows, Hole 18 Scores (Par 4)")
+```
+
+If you want to see a fly through of this particular hole you can [here](https://youtu.be/RtE0CXlyIOY?t=1662). Hole map below:
+![Fox Run Meadows Hole 18, Udisc.com](images\FRM_18.jpg){width=50%}
+
+You can see the hole has OB marked on both sides of the fairway, and the fairway is relatively narrow for the distance. What isn't evident from the map is that the hole plays pretty significantly downhill, making it harder to manage the skip and ultimately final placement of the disc in the fairway.
+
+## Limitations and Possible Improvements
+1. The round data was entered in a semi-manual way. An automated scraping process would be much better so that all rounds could be included
+1. I was limited by not having handedness data on the players, which would have opened insight opportunities on how certain holes or courses played depending on if the thrower was right or left handed.
+1. Once all data is in, I believe having a dashboard where you can explor player statsitics and course statistics would be fun to explore.
